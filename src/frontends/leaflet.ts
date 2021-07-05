@@ -36,14 +36,6 @@ class CanvasPool {
     }
 }
 
-const timer = duration => {
-    return new Promise<void>((resolve,reject) => {
-        setTimeout(() => {
-            resolve()
-        },duration)
-    })
-}
-
 class LeafletLayer extends L.GridLayer {
     constructor(options) {
         if (options.noWrap && !options.bounds) options.bounds = [[-90,-180],[90,180]]
@@ -102,14 +94,6 @@ class LeafletLayer extends L.GridLayer {
 
         if (this.lastRequestedZ !== coords.z) return
         if (!this._map) return // the layer has been removed from the map
-
-        let center = this._map.getCenter().wrap()
-        let pixelBounds = this._getTiledPixelBounds(center),
-             tileRange = this._pxBoundsToTileRange(pixelBounds),
-             tileCenter = tileRange.getCenter()
-        let priority = coords.distanceTo(tileCenter) * 5
-
-        await timer(priority)
 
         let BUF = 16
         let bbox = [256*coords.x-BUF,256*coords.y-BUF,256*(coords.x+1)+BUF,256*(coords.y+1)+BUF]
