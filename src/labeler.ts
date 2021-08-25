@@ -64,7 +64,7 @@ export const covering = (display_zoom:number,tile_width:number,bbox:Bbox) => {
 }
 
 export class Index {
-    tree: RBush 
+    tree: RBush<any>
     current:Map<string,Set<IndexedLabel>>
 
     constructor() {
@@ -322,7 +322,7 @@ export class Labelers {
         }
     }
 
-    public getIndex(z:number):RBush {
+    public getIndex(z:number) {
         let labeler = this.labelers.get(z)
         if (labeler) return labeler.index // TODO cleanup
     }

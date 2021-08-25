@@ -110,7 +110,7 @@ function parseTile(buffer:ArrayBuffer,tileSize:number):Map<string,Feature[]> {
 }
 
 export class PmtilesSource implements TileSource {
-    p: PMTiles
+    p: any
     controllers: any[]
     shouldCancelZooms: boolean
 
