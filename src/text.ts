@@ -30,7 +30,7 @@ export class TextSpec {
     textTransform:string
 
     constructor(options:any = {}) {
-        this.properties = options.properties ?? options.textField ? [options.textField] : ["name"]
+        this.properties = options.properties || ["name"]
         this.textTransform = options.textTransform
     }
 
