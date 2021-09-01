@@ -1,6 +1,6 @@
 {
   "name": "terriajs-protomaps",
-  "version": "0.20.1-8",
+  "version": "1.0.1",
   "files": [
     "dist",
     "src"

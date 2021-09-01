@@ -21,7 +21,7 @@ export interface Bbox {
 }
 
 export interface Feature {
-    readonly properties: any
+    readonly props: any
     readonly bbox: Bbox
     readonly geomType: GeomType
     readonly geom: Point[][]
@@ -101,7 +101,7 @@ function parseTile(buffer:ArrayBuffer,tileSize:number):Map<string,Feature[]> {
                 geom:result.geom,
                 numVertices:numVertices,
                 bbox:result.bbox,
-                properties:layer.feature(i).properties
+                props:layer.feature(i).properties
             })
         }
         result.set(key,features)
@@ -206,7 +206,10 @@ let project = (latlng:number[]) => {
     return new Point(R*latlng[1]*d,R*Math.log((1+sin)/(1-sin))/2)
 }
 
-export type PickedFeature = Feature & {layerName:string}
+export interface PickedFeature {
+    feature: Feature
+    layerName: string
+}
 
 export class TileCache {
     source: TileSource
@@ -239,7 +242,7 @@ export class TileCache {
                 for (let feature of layer_arr) {
                     if ((query_bbox.maxX >= feature.bbox.minX && feature.bbox.maxX >= query_bbox.minX) &&
                         (query_bbox.maxY >= feature.bbox.minY && feature.bbox.maxY >= query_bbox.minY)) {
-                        retval.push({...feature, layerName: layer_name})
+                        retval.push({feature, layerName: layer_name})
                     }
                 }
             }
