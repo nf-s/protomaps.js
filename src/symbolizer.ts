@@ -40,7 +40,7 @@ export class PolygonSymbolizer implements PaintSymbolizer {
         this.pattern = options.pattern
         this.fill = new ColorAttr(options.fill)
         this.opacity = new NumberAttr(options.opacity,1)
-        this.per_feature = (this.fill.per_feature || this.opacity.per_feature)
+        this.per_feature = (this.fill.per_feature || this.opacity.per_feature || options.per_feature)
     }
 
     public before(ctx:any,z:number) {
@@ -120,7 +120,7 @@ export class LineSymbolizer implements PaintSymbolizer {
         this.dashColor = new ColorAttr(options.dashColor)
         this.dashWidth = new NumberAttr(options.dashWidth)
         this.skip = false
-        this.per_feature = (this.dash || this.color.per_feature || this.opacity.per_feature || this.width.per_feature)
+        this.per_feature = (this.dash || this.color.per_feature || this.opacity.per_feature || this.width.per_feature || options.per_feature)
     } 
 
     public before(ctx:any,z:number) {
@@ -210,17 +210,18 @@ export class CircleSymbolizer implements LabelSymbolizer, PaintSymbolizer {
     public draw(ctx:any,geom:Point[][],z:number,f:Feature) {
         ctx.globalAlpha = this.opacity.get(z,f)
 
+        let radius = this.radius.get(z,f)
         let width = this.width.get(z,f)
         if (width > 0) {
             ctx.fillStyle = this.stroke.get(z,f)
             ctx.beginPath()
-            ctx.arc(geom[0][0].x,geom[0][0].y, this.radius.get(z,f) + this.width.get(z,f), 0, 2* Math.PI)
+            ctx.arc(geom[0][0].x,geom[0][0].y, radius + width, 0, 2* Math.PI)
             ctx.fill()
         }
 
         ctx.fillStyle = this.fill.get(z,f)
         ctx.beginPath()
-        ctx.arc(geom[0][0].x,geom[0][0].y, this.radius, 0, 2* Math.PI)
+        ctx.arc(geom[0][0].x,geom[0][0].y, radius, 0, 2* Math.PI)
         ctx.fill()
     }
 
@@ -371,12 +372,44 @@ export class GroupSymbolizer implements LabelSymbolizer {
     }
 }
 
-export class CenteredTextSymbolizer implements LabelSymbolizer {
+export class CenteredSymbolizer implements LabelSymbolizer {
+    symbolizer: LabelSymbolizer
+    
+    constructor(symbolizer:LabelSymbolizer) {
+        this.symbolizer = symbolizer
+    }
+
+    public place(layout:Layout,geom:Point[][],feature:Feature) {
+        let a = geom[0][0]
+        let placed = this.symbolizer.place(layout,[[new Point(0,0)]],feature)
+        if (!placed || placed.length == 0) return undefined
+        let first_label = placed[0]
+        let bbox = first_label.bboxes[0]
+        let width = bbox.maxX - bbox.minX
+        let height = bbox.maxY - bbox.minY
+        let centered = {
+            minX:a.x-width/2,
+            maxX:a.x+width/2,
+            minY:a.y-height/2,
+            maxY:a.y+height/2
+        }
+
+        let draw = (ctx:any) => {
+            ctx.translate(-width/2,height/2-bbox.maxY)
+            first_label.draw(ctx)
+        }
+
+        return [{anchor:a,bboxes:[centered],draw:draw}]
+    }
+}
+
+export class TextSymbolizer implements LabelSymbolizer {
     font: FontAttr
     text: TextAttr
     fill: ColorAttr
     stroke:ColorAttr 
     width: NumberAttr
+    maxLineCodeUnits: number
 
     constructor(options:any) {
         this.font = new FontAttr(options)
@@ -385,116 +418,142 @@ export class CenteredTextSymbolizer implements LabelSymbolizer {
         this.fill = new ColorAttr(options.fill)
         this.stroke = new ColorAttr(options.stroke)
         this.width = new NumberAttr(options.width,0)
+        this.maxLineCodeUnits = options.maxLineChars || 15
     }
 
     public place(layout:Layout,geom:Point[][],feature:Feature) {
-        if (feature.geomType !== GeomType.Point) return undefined
         let property = this.text.get(layout.zoom,feature)
         if (!property) return undefined
         let font = this.font.get(layout.zoom,feature)
         layout.scratch.font = font
-        let metrics = layout.scratch.measureText(property)
 
+        // line breaking
+        let lines = linebreak(property,this.maxLineCodeUnits)
+        var longestLine
+        var longestLineLen = 0
+        for (let line of lines) {
+            if (line.length > longestLineLen) {
+                longestLineLen = line.length
+                longestLine = line
+            }
+        }
+
+        let metrics = layout.scratch.measureText(longestLine)
         let width = metrics.width
+
         let ascent = metrics.actualBoundingBoxAscent
         let descent = metrics.actualBoundingBoxDescent
+        let lineHeight = ascent + descent
 
         let a = new Point(geom[0][0].x,geom[0][0].y)
         let bbox = {
-            minX:a.x-width/2, 
+            minX:a.x, 
             minY:a.y-ascent,
-            maxX:a.x+width/2,
-            maxY:a.y+descent
+            maxX:a.x+width,
+            maxY:a.y+descent+(lines.length-1)*lineHeight
         }
-        let textX = -width/2
 
         // inside draw, the origin is the anchor
+        // and the anchor is the typographic baseline of the first line
         let draw = (ctx:any) => {
             ctx.globalAlpha = 1
             ctx.font = font
-
-            let lineWidth = this.width.get(layout.zoom,feature)
-            if (lineWidth) {
-                ctx.lineWidth = lineWidth * 2 // centered stroke
-                ctx.strokeStyle = this.stroke.get(layout.zoom,feature)
-                ctx.strokeText(property,textX,0)
-            }
-
             ctx.fillStyle = this.fill.get(layout.zoom,feature)
-            ctx.fillText(property,textX,0)
+            let textStrokeWidth = this.width.get(layout.zoom,feature)
 
+            var y = 0
+            for (let line of lines) {
+                if (textStrokeWidth) {
+                    ctx.lineWidth = textStrokeWidth * 2 // centered stroke
+                    ctx.strokeStyle = this.stroke.get(layout.zoom,feature)
+                    ctx.strokeText(line,0,y)
+                }
+                ctx.fillText(line,0,y)
+                y += lineHeight
+            }
         }
         return [{anchor:a,bboxes:[bbox],draw:draw}]
     }
 }
 
-export class OffsetTextSymbolizer implements LabelSymbolizer {
-    font: FontAttr
-    text: TextAttr
-    fill: ColorAttr
-    stroke: ColorAttr
-    width: NumberAttr
-    offset: NumberAttr
+
+export class CenteredTextSymbolizer implements LabelSymbolizer {
+    centered: LabelSymbolizer
 
     constructor(options:any) {
-        this.font = new FontAttr(options)
-        this.text = new TextAttr(options)
+        this.centered = new CenteredSymbolizer(new TextSymbolizer(options))
+    }
 
-        this.fill = new ColorAttr(options.fill)
-        this.stroke = new ColorAttr(options.stroke)
-        this.width = new NumberAttr(options.width,0)
+    public place(layout:Layout,geom:Point[][],feature:Feature) {
+        return this.centered.place(layout,geom,feature)
+    }
+}
+
+export class OffsetSymbolizer implements LabelSymbolizer {
+    offset: NumberAttr
+    symbolizer: LabelSymbolizer
+
+    constructor(symbolizer:LabelSymbolizer, options:any) {
+        this.symbolizer = symbolizer
         this.offset = new NumberAttr(options.offset,0)
     }
 
     public place(layout:Layout,geom:Point[][],feature:Feature) {
         if (feature.geomType !== GeomType.Point) return undefined
-        let property = this.text.get(layout.zoom,feature)
-        if (!property) return undefined
-        let font = this.font.get(layout.zoom,feature)
-        layout.scratch.font = font
-        let metrics = layout.scratch.measureText(property)
-
-        let width = metrics.width
-        let ascent = metrics.actualBoundingBoxAscent
-        let descent = metrics.actualBoundingBoxDescent
-
-        let a = new Point(geom[0][0].x,geom[0][0].y)
+        let anchor = geom[0][0]
+        let placed = this.symbolizer.place(layout,[[new Point(0,0)]],feature)
+        if (!placed || placed.length == 0) return undefined
+        let first_label = placed[0]
+        let fb = first_label.bboxes[0]
         let offset = this.offset.get(layout.zoom,feature)
 
-        var text_origin = new Point(offset,-offset)
-
-        let draw = (ctx:any) => {
-            ctx.globalAlpha = 1
-            ctx.font = font
-            let width = this.width.get(layout.zoom,feature)
-            if (width) {
-                ctx.lineWidth = width * 2 // centered stroke
-                ctx.strokeStyle = this.stroke.get(layout.zoom,feature)
-                ctx.strokeText(property,text_origin.x,text_origin.y)
+        let getBbox = (a:Point,o:Point) => {
+            return {
+                minX:a.x+o.x+fb.minX, 
+                minY:a.y+o.y+fb.minY,
+                maxX:a.x+o.x+fb.maxX,
+                maxY:a.y+o.y+fb.maxY
             }
-            ctx.fillStyle = this.fill.get(layout.zoom,feature)
-            ctx.fillText(property,text_origin.x,text_origin.y)
         }
 
-        // test candidates
-        var bbox = {
-            minX:a.x+text_origin.x, 
-            minY:a.y-ascent+text_origin.y,
-            maxX:a.x+width+text_origin.x,
-            maxY:a.y+descent+text_origin.y
+        var origin = new Point(offset,-offset)
+        let draw = (ctx:any) => {
+            ctx.translate(origin.x,origin.y)
+            first_label.draw(ctx)
         }
-        if (!layout.index.bboxCollides(bbox,layout.order)) return [{anchor:a,bboxes:[bbox],draw:draw}]
 
-        text_origin = new Point(-width-offset,-offset)
-        bbox = {
-            minX:a.x+text_origin.x, 
-            minY:a.y-ascent+text_origin.y,
-            maxX:a.x+width+text_origin.x,
-            maxY:a.y+descent+text_origin.y
-        }
-        if (!layout.index.bboxCollides(bbox,layout.order)) return [{anchor:a,bboxes:[bbox],draw:draw}]
+        // NE
+        var bbox = getBbox(anchor,origin)
+        if (!layout.index.bboxCollides(bbox,layout.order)) return [{anchor:anchor,bboxes:[bbox],draw:draw}]
+
+        // SW
+        origin = new Point(-offset-fb.maxX,offset-fb.minY)
+        bbox = getBbox(anchor,origin)
+        if (!layout.index.bboxCollides(bbox,layout.order)) return [{anchor:anchor,bboxes:[bbox],draw:draw}]
+
+        // NW
+        origin = new Point(-offset-fb.maxX,-offset)
+        bbox = getBbox(anchor,origin)
+        if (!layout.index.bboxCollides(bbox,layout.order)) return [{anchor:anchor,bboxes:[bbox],draw:draw}]
+
+        // SE
+        origin = new Point(-offset-fb.maxX,offset-fb.minY)
+        bbox = getBbox(anchor,origin)
+        if (!layout.index.bboxCollides(bbox,layout.order)) return [{anchor:anchor,bboxes:[bbox],draw:draw}]
 
         return undefined
+    }
+}
+
+export class OffsetTextSymbolizer implements LabelSymbolizer {
+    symbolizer: LabelSymbolizer
+
+    constructor(options:any) {
+        this.symbolizer = new OffsetSymbolizer(new TextSymbolizer(options),options)
+    }
+
+    public place(layout:Layout,geom:Point[][],feature:Feature) {
+        return this.symbolizer.place(layout,geom,feature)
     }
 }
 
@@ -575,19 +634,10 @@ export class LineLabelSymbolizer implements LabelSymbolizer {
 }
 
 export class PolygonLabelSymbolizer implements LabelSymbolizer {
-    font:FontAttr
-    text:TextAttr
-    fill:ColorAttr
-    stroke: ColorAttr
-    width: NumberAttr
+    symbolizer: LabelSymbolizer
 
     constructor(options:any) {
-        this.font = new FontAttr(options)
-        this.text = new TextAttr(options)
-
-        this.fill = new ColorAttr(options.fill)
-        this.stroke = new ColorAttr(options.stroke)
-        this.width = new NumberAttr(options.width,0)
+        this.symbolizer = new TextSymbolizer(options)
     }
 
     public place(layout:Layout,geom:Point[][],feature:Feature) {
@@ -595,57 +645,25 @@ export class PolygonLabelSymbolizer implements LabelSymbolizer {
         let area = (fbbox.maxY - fbbox.minY) * (fbbox.maxX-fbbox.minX) // TODO needs to be based on zoom level/overzooming
         if (area < 20000) return undefined
 
-        let property = this.text.get(layout.zoom,feature)
-        if (!property) return undefined
+        let placed = this.symbolizer.place(layout,[[new Point(0,0)]],feature)
+        if (!placed || placed.length == 0) return undefined
+        let first_label = placed[0]
+        let fb = first_label.bboxes[0]
 
         let first_poly = geom[0]
         let found = polylabel([first_poly.map(c => [c.x,c.y])])
         let a = new Point(found[0],found[1])
-        let font = this.font.get(layout.zoom,feature)
 
-        layout.scratch.font = font
-
-        let lines = linebreak(property)
-
-        let lineHeight = 14
-
-        var longestLine
-        var longestLineLen = 0 
-        for (let line of lines) {
-            if (line.length > longestLineLen) {
-                longestLineLen = line.length
-                longestLine = line
-            }
-        }
-
-        let metrics = layout.scratch.measureText(longestLine)
-        let width = metrics.width
         let bbox = {
-            minX:a.x-width/2, 
-            minY:a.y-metrics.actualBoundingBoxAscent,
-            maxX:a.x+width/2,
-            maxY:a.y+(lineHeight*lines.length-metrics.actualBoundingBoxAscent)
+            minX:a.x - (fb.maxX - fb.minX)/2,
+            minY:a.y - (fb.maxY - fb.minY)/2,
+            maxX:a.x + (fb.maxX - fb.minX)/2,
+            maxY:a.y + (fb.maxY - fb.minY)/2
         }
-
-        let fill = this.fill.get(layout.zoom,feature)
 
         let draw = (ctx:any) => {
-            ctx.globalAlpha = 1
-
-            ctx.font = font
-
-            var y = 0
-            let lineWidth = this.width.get(layout.zoom,feature)
-            for (let line of lines) {
-                if (lineWidth) {
-                    ctx.lineWidth = lineWidth
-                    ctx.strokeStyle = this.stroke.get(layout.zoom,feature)
-                    ctx.strokeText(line,-width/2,y)
-                }
-                ctx.fillStyle = fill
-                ctx.fillText(line,-width/2,y)
-                y += lineHeight
-            }
+            ctx.translate(first_label.anchor.x-(fb.maxX-fb.minX)/2,first_label.anchor.y)
+            first_label.draw(ctx)
         }
         return [{anchor:a,bboxes:[bbox],draw:draw}]
     }

@@ -5,7 +5,7 @@ import Point from '@mapbox/point-geometry'
 
 import { ZxySource, Zxy, PmtilesSource, TileCache } from '../tilecache'
 import { View } from '../view'
-import { painter } from '../painter'
+import { painter, xray } from '../painter'
 import { Labelers } from '../labeler'
 import { light } from '../default_style/light'
 import { dark } from '../default_style/dark'
@@ -58,6 +58,7 @@ const leafletLayer = (options:any):any => {
             this.paint_rules = options.paint_rules || paintRules(theme,options.shade)
             this.label_rules = options.label_rules || labelRules(theme,options.shade,options.language1,options.language2)
             this.lastRequestedZ = undefined
+            this.xray = options.xray
 
             let source
             if (options.url.url) {
@@ -73,9 +74,11 @@ const leafletLayer = (options:any):any => {
               maxDataZoom = options.maxDataZoom;
             }
 
+            this.levelDiff = options.levelDiff === undefined ? 2 : options.levelDiff
+
             this.tasks = options.tasks || []
-            let cache = new TileCache(source,1024)
-            this.view = new View(cache,maxDataZoom,2)
+            let cache = new TileCache(source,256 * 1 << this.levelDiff)
+            this.view = new View(cache,maxDataZoom,this.levelDiff)
             this.debug = options.debug
             let scratch = document.createElement('canvas').getContext('2d')
             this.scratch = scratch
@@ -141,7 +144,12 @@ const leafletLayer = (options:any):any => {
             ctx.setTransform(this.tile_size/256,0,0,this.tile_size/256,0,0)
             ctx.clearRect(0,0,256,256)
 
-            let painting_time = painter(ctx,[prepared_tile],label_data,this.paint_rules,bbox,origin,false,this.debug)
+            var painting_time = 0
+            if (this.xray) {
+                painting_time = xray(ctx,[prepared_tile],bbox,origin,false,this.debug)
+            } else {
+                painting_time = painter(ctx,[prepared_tile],label_data,this.paint_rules,bbox,origin,false,this.debug)
+            }
 
             if (this.debug) {
                 let data_tile = prepared_tile.data_tile
@@ -160,13 +168,13 @@ const leafletLayer = (options:any):any => {
                 }
                 ctx.strokeStyle = this.debug
 
-                ctx.lineWidth = (coords.x/4 === data_tile.x) ? 1.5 : 0.5
+                ctx.lineWidth = (coords.x/(1 << this.levelDiff) === data_tile.x) ? 2.5 : 0.5
                 ctx.beginPath()
                 ctx.moveTo(0,0)
                 ctx.lineTo(0,256)
                 ctx.stroke()
 
-                ctx.lineWidth = (coords.y/4 === data_tile.y) ? 1.5 : 0.5
+                ctx.lineWidth = (coords.y/(1 << this.levelDiff) === data_tile.y) ? 2.5 : 0.5
                 ctx.beginPath()
                 ctx.moveTo(0,0)
                 ctx.lineTo(256,0)
@@ -226,6 +234,28 @@ const leafletLayer = (options:any):any => {
 
         public queryFeatures(lng:number,lat:number) {
             return this.view.queryFeatures(lng,lat,this._map.getZoom())
+        }
+
+        public addInspector(map:any) {
+            let typeNames = ['Point','Line','Polygon']
+            map.on('click',(ev:any) => {
+                let wrapped = map.wrapLatLng(ev.latlng)
+                let results = this.queryFeatures(wrapped.lng,wrapped.lat)
+                var content = ""
+                for (var i = 0; i < results.length; i++) {
+                    let result = results[i]
+                    content = content + `<div><b>${result.layerName}</b> ${typeNames[result.feature.geomType-1]} ${result.feature.id}</div>`
+                    for (const prop in result.feature.props) {
+                        content = content + `<div>${prop}=${result.feature.props[prop]}</div>`
+                    }
+                    if (i < results.length - 1) content = content + '<hr/>'
+                }
+                if (results.length == 0) {
+                    content = "No features."
+                }
+                L.popup().setLatLng(ev.latlng).setContent(content).openOn(map)
+            })
+            return this
         }
     }
     return new LeafletLayer(options)
