@@ -1,7 +1,5 @@
 <html>
     <head>
-    </head>
-    <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"/>
@@ -20,11 +18,12 @@
         <div id="map"></div> 
         <script>
             const map = L.map('map')
-            hash = new L.Hash(map)
+            let hash = new L.Hash(map)
             if (!window.location.hash) map.setView(new L.LatLng(25.0412,121.5177),16)
             var layer = protomaps.leafletLayer({url:'https://api.protomaps.com/tiles/v2/{z}/{x}/{y}.pbf?key=1003762824b9687f'})
             layer.addTo(map)
             layer.addInspector(map)
+            // layer.removeInspector(map)
         </script>
     </body>
 </html>

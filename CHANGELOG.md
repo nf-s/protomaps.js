@@ -1,3 +1,28 @@
+# 1.13.0
+* `PolygonSymbolizer` has `stroke` and `width` for efficient outlines.
+* `maxLineChars` line-breaking can be a function.
+
+# 1.12.0
+* `Static` takes same basic options as leaflet frontend.
+
+# 1.10.0
+* `backgroundColor` option for leaflet or static map.
+
+# 1.9.0
+* Center text justification only in the case of `CenterdSymbolizer`
+* `TextSymbolizer` `label_props` can be a function
+* `LineSymbolizer` `lineJoin` and `lineCap` attributes
+
+# 1.8.0
+* add `Padding` generic label symbolizer
+
+# 1.7.0
+* `TextSymbolizer` attributes: `lineHeight` in `em`, `letterSpacing` in `px`
+* add `linear` and `step` shortcut functions for zoom-based styling
+
+# 1.6.0
+* add `removeInspector`
+
 # 1.5.0
 * `levelDiff` option to set ratio of display tiles to data tiles.
 
