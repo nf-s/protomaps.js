@@ -1,16 +1,19 @@
+import { ObjectProperties } from ".";
 import { Feature } from "./tilecache";
 
-export class StringAttr {
-  str: string | ((z: number, f?: Feature) => string);
-  per_feature: boolean;
+export type Attr<T> = T | ((z: number, f?: Feature) => T);
 
-  constructor(c: any, defaultValue: string = "") {
-    this.str = c || defaultValue;
+export class StringAttr<T extends string = string> {
+  str: Attr<T>;
+  per_feature?: boolean;
+
+  constructor(c: Attr<T> | undefined, defaultValue: T) {
+    this.str = c ?? defaultValue;
     this.per_feature = typeof this.str == "function" && this.str.length == 2;
   }
 
-  public get(z: number, f?: Feature): string {
-    if (typeof this.str == "function") {
+  public get(z: number, f?: Feature): T {
+    if (typeof this.str === "function") {
       return this.str(z, f);
     } else {
       return this.str;
@@ -19,11 +22,11 @@ export class StringAttr {
 }
 
 export class NumberAttr {
-  value: number | ((z: number, f?: Feature) => number);
+  value: Attr<number>;
   per_feature: boolean;
 
-  constructor(c: any, defaultValue: number = 1) {
-    this.value = c || defaultValue;
+  constructor(c: Attr<number> | undefined, defaultValue: number = 1) {
+    this.value = c ?? defaultValue;
     this.per_feature =
       typeof this.value == "function" && this.value.length == 2;
   }
@@ -37,12 +40,14 @@ export class NumberAttr {
   }
 }
 
-export class TextAttr {
-  label_props: string[] | ((z: number, f?: Feature) => string[]);
-  textTransform: string;
+export interface TextAttrOptions extends ObjectProperties<TextAttr> {}
 
-  constructor(options: any = {}) {
-    this.label_props = options.label_props || ["name"];
+export class TextAttr {
+  label_props: Attr<string[]>;
+  textTransform?: string;
+
+  constructor(options: TextAttrOptions) {
+    this.label_props = options.label_props ?? ["name"];
     this.textTransform = options.textTransform;
   }
 
@@ -67,19 +72,27 @@ export class TextAttr {
   }
 }
 
-export class FontAttr {
-  family?: string | ((z: number, f: Feature) => string);
-  size?: number | ((z: number, f: Feature) => number);
-  weight?: number | ((z: number, f: Feature) => number);
-  style?: number | ((z: number, f: Feature) => string);
-  font?: string | ((z: number, f: Feature) => string);
+export interface FontAttrOptions {
+  font?: Attr<string>;
+  fontFamily?: Attr<string>;
+  fontSize?: Attr<number>;
+  fontWeight?: Attr<number>;
+  fontStyle?: Attr<string>;
+}
 
-  constructor(options: any) {
+export class FontAttr {
+  family?: Attr<string>;
+  size?: Attr<number>;
+  weight?: Attr<number>;
+  style?: Attr<string>;
+  font?: Attr<string>;
+
+  constructor(options: FontAttrOptions) {
     if (options.font) {
       this.font = options.font;
     } else {
-      this.family = options.fontFamily || "sans-serif";
-      this.size = options.fontSize || 12;
+      this.family = options.fontFamily ?? "sans-serif";
+      this.size = options.fontSize ?? 12;
       this.weight = options.fontWeight;
       this.style = options.fontStyle;
     }

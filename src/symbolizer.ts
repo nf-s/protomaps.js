@@ -1,12 +1,32 @@
 // @ts-ignore
 import Point from "@mapbox/point-geometry";
-import { GeomType, Feature, Bbox } from "./tilecache";
 // @ts-ignore
 import polylabel from "polylabel";
-import { NumberAttr, StringAttr, TextAttr, FontAttr } from "./attribute";
-import { linebreak, isCjk } from "./text";
+import {
+  Attr,
+  FontAttr,
+  FontAttrOptions,
+  NumberAttr,
+  StringAttr,
+  TextAttr,
+  TextAttrOptions,
+} from "./attribute";
+import { Label, Layout } from "./labeler";
 import { lineCells, simpleLabel } from "./line";
-import { Index, Label, Layout } from "./labeler";
+import { linebreak } from "./text";
+import { Bbox, Feature, GeomType } from "./tilecache";
+
+// Adapted from https://stackoverflow.com/a/55479659
+type NonFunctionPropertyNames<T> = {
+  [K in keyof T]: T[K] extends Function ? never : K;
+}[keyof T];
+type NonFunctionProperties<T> = Pick<T, NonFunctionPropertyNames<T>>;
+
+export type ObjectProperties<
+  T,
+  Required extends keyof T | undefined = undefined
+> = Partial<NonFunctionProperties<T>> &
+  (Required extends keyof T ? Pick<T, Required> : {});
 
 let batch_size = Infinity;
 if (
@@ -18,8 +38,13 @@ if (
 }
 
 export interface PaintSymbolizer {
-  before?(ctx: any, z: number): void;
-  draw(ctx: any, geom: Point[][], z: number, feature: Feature): void;
+  before?(ctx: CanvasRenderingContext2D, z: number): void;
+  draw(
+    ctx: CanvasRenderingContext2D,
+    geom: Point[][],
+    z: number,
+    feature: Feature
+  ): void;
 }
 
 export enum Justify {
@@ -36,7 +61,7 @@ export enum TextPlacements {
   S = 5,
   SW = 6,
   W = 7,
-  NW = 8
+  NW = 8,
 }
 
 export interface DrawExtra {
@@ -54,18 +79,18 @@ export interface LabelSymbolizer {
 export const createPattern = (
   width: number,
   height: number,
-  fn: (canvas: any, ctx: any) => void
+  fn: (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) => void
 ) => {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   canvas.width = width;
   canvas.height = height;
-  fn(canvas, ctx);
+  if (ctx !== null) fn(canvas, ctx);
   return canvas;
 };
 
 export class PolygonSymbolizer implements PaintSymbolizer {
-  pattern: any; // FIXME
+  pattern?: CanvasImageSource;
   fill: StringAttr;
   opacity: NumberAttr;
   stroke: StringAttr;
@@ -73,22 +98,30 @@ export class PolygonSymbolizer implements PaintSymbolizer {
   per_feature: boolean;
   do_stroke: boolean;
 
-  constructor(options: any) {
+  constructor(options: {
+    pattern?: CanvasImageSource;
+    fill?: Attr<string>;
+    opacity?: Attr<number>;
+    stroke?: Attr<string>;
+    width?: Attr<number>;
+    per_feature?: boolean;
+  }) {
     this.pattern = options.pattern;
     this.fill = new StringAttr(options.fill, "black");
     this.opacity = new NumberAttr(options.opacity, 1);
     this.stroke = new StringAttr(options.stroke, "black");
     this.width = new NumberAttr(options.width, 0);
     this.per_feature =
-      this.fill.per_feature ||
-      this.opacity.per_feature ||
-      this.stroke.per_feature ||
-      this.width.per_feature ||
-      options.per_feature;
+      (this.fill.per_feature ||
+        this.opacity.per_feature ||
+        this.stroke.per_feature ||
+        this.width.per_feature ||
+        options.per_feature) ??
+      false;
     this.do_stroke = false;
   }
 
-  public before(ctx: any, z: number) {
+  public before(ctx: CanvasRenderingContext2D, z: number) {
     if (!this.per_feature) {
       ctx.globalAlpha = this.opacity.get(z);
       ctx.fillStyle = this.fill.get(z);
@@ -98,11 +131,17 @@ export class PolygonSymbolizer implements PaintSymbolizer {
       ctx.lineWidth = width;
     }
     if (this.pattern) {
-      ctx.fillStyle = ctx.createPattern(this.pattern, "repeat");
+      const patten = ctx.createPattern(this.pattern, "repeat");
+      if (patten) ctx.fillStyle = patten;
     }
   }
 
-  public draw(ctx: any, geom: Point[][], z: number, f: Feature) {
+  public draw(
+    ctx: CanvasRenderingContext2D,
+    geom: Point[][],
+    z: number,
+    f: Feature
+  ) {
     var do_stroke = false;
     if (this.per_feature) {
       ctx.globalAlpha = this.opacity.get(z, f);
@@ -189,15 +228,26 @@ export class LineSymbolizer implements PaintSymbolizer {
   color: StringAttr;
   width: NumberAttr;
   opacity: NumberAttr;
-  dash: any;
+  dash?: number[];
   dashColor: StringAttr;
   dashWidth: NumberAttr;
   skip: boolean;
   per_feature: boolean;
-  lineCap: StringAttr;
-  lineJoin: StringAttr;
+  lineCap: StringAttr<CanvasLineCap>;
+  lineJoin: StringAttr<CanvasLineJoin>;
 
-  constructor(options: any) {
+  constructor(options: {
+    color?: Attr<string>;
+    width?: Attr<number>;
+    opacity?: Attr<number>;
+    dash?: number[];
+    dashColor?: Attr<string>;
+    dashWidth?: Attr<number>;
+    skip?: boolean;
+    per_feature?: boolean;
+    lineCap?: Attr<CanvasLineCap>;
+    lineJoin?: Attr<CanvasLineJoin>;
+  }) {
     this.color = new StringAttr(options.color, "black");
     this.width = new NumberAttr(options.width);
     this.opacity = new NumberAttr(options.opacity);
@@ -207,17 +257,18 @@ export class LineSymbolizer implements PaintSymbolizer {
     this.lineCap = new StringAttr(options.lineCap, "butt");
     this.lineJoin = new StringAttr(options.lineJoin, "miter");
     this.skip = false;
-    this.per_feature =
+    this.per_feature = !!(
       this.dash ||
       this.color.per_feature ||
       this.opacity.per_feature ||
       this.width.per_feature ||
       this.lineCap.per_feature ||
       this.lineJoin.per_feature ||
-      options.per_feature;
+      options.per_feature
+    );
   }
 
-  public before(ctx: any, z: number) {
+  public before(ctx: CanvasRenderingContext2D, z: number) {
     if (!this.per_feature) {
       ctx.strokeStyle = this.color.get(z);
       ctx.lineWidth = this.width.get(z);
@@ -227,7 +278,12 @@ export class LineSymbolizer implements PaintSymbolizer {
     }
   }
 
-  public draw(ctx: any, geom: Point[][], z: number, f: Feature) {
+  public draw(
+    ctx: CanvasRenderingContext2D,
+    geom: Point[][],
+    z: number,
+    f: Feature
+  ) {
     if (this.skip) return;
 
     var i = 0;
@@ -271,11 +327,14 @@ export class LineSymbolizer implements PaintSymbolizer {
 }
 
 export class IconSymbolizer implements LabelSymbolizer {
-  sprites: any; // FIXME
+  sprites: Map<
+    string,
+    { canvas: CanvasImageSource; x: number; y: number; w: number; h: number }
+  >;
   name: string;
 
-  constructor(options: any) {
-    this.sprites = options.sprites;
+  constructor(options: ObjectProperties<IconSymbolizer, "name">) {
+    this.sprites = options.sprites ?? new Map();
     this.name = options.name;
   }
 
@@ -289,10 +348,10 @@ export class IconSymbolizer implements LabelSymbolizer {
       maxY: a.y + 32,
     };
 
-    let draw = (ctx: any) => {
+    let draw = (ctx: CanvasRenderingContext2D) => {
       ctx.globalAlpha = 1;
       let r = this.sprites.get(this.name);
-      ctx.drawImage(r.canvas, r.x, r.y, r.w, r.h, -8, -8, r.w, r.h);
+      if (r) ctx.drawImage(r.canvas, r.x, r.y, r.w, r.h, -8, -8, r.w, r.h);
     };
     return [{ anchor: a, bboxes: [bbox], draw: draw }];
   }
@@ -305,15 +364,26 @@ export class CircleSymbolizer implements LabelSymbolizer, PaintSymbolizer {
   width: NumberAttr;
   opacity: NumberAttr;
 
-  constructor(options: any) {
+  constructor(options: {
+    radius?: Attr<number>;
+    fill?: Attr<string>;
+    stroke?: Attr<string>;
+    width?: Attr<number>;
+    opacity?: Attr<number>;
+  }) {
     this.radius = new NumberAttr(options.radius, 3);
     this.fill = new StringAttr(options.fill, "black");
     this.stroke = new StringAttr(options.stroke, "white");
-    this.width = new NumberAttr(options.width, 0); // TODO 0 is falsy
+    this.width = new NumberAttr(options.width, 0);
     this.opacity = new NumberAttr(options.opacity);
   }
 
-  public draw(ctx: any, geom: Point[][], z: number, f: Feature) {
+  public draw(
+    ctx: CanvasRenderingContext2D,
+    geom: Point[][],
+    z: number,
+    f: Feature
+  ) {
     ctx.globalAlpha = this.opacity.get(z, f);
 
     let radius = this.radius.get(z, f);
@@ -342,7 +412,7 @@ export class CircleSymbolizer implements LabelSymbolizer, PaintSymbolizer {
       maxY: a.y + radius,
     };
 
-    let draw = (ctx: any) => {
+    let draw = (ctx: CanvasRenderingContext2D) => {
       this.draw(ctx, [[new Point(0, 0)]], layout.zoom, feature);
     };
     return [{ anchor: a, bboxes: [bbox], draw }];
@@ -356,7 +426,14 @@ export class ShieldSymbolizer implements LabelSymbolizer {
   fill: StringAttr;
   padding: NumberAttr;
 
-  constructor(options: any) {
+  constructor(
+    options: {
+      fill?: Attr<string>;
+      background?: Attr<string>;
+      padding?: Attr<number>;
+    } & FontAttrOptions &
+      TextAttrOptions
+  ) {
     this.font = new FontAttr(options);
     this.text = new TextAttr(options);
     this.fill = new StringAttr(options.fill, "black");
@@ -385,7 +462,7 @@ export class ShieldSymbolizer implements LabelSymbolizer {
       maxY: a.y + descent + p,
     };
 
-    let draw = (ctx: any) => {
+    let draw = (ctx: CanvasRenderingContext2D) => {
       ctx.globalAlpha = 1;
       ctx.fillStyle = this.background.get(layout.zoom, f);
       ctx.fillRect(
@@ -406,7 +483,7 @@ export class ShieldSymbolizer implements LabelSymbolizer {
 export class FlexSymbolizer implements LabelSymbolizer {
   list: LabelSymbolizer[];
 
-  constructor(list: LabelSymbolizer[], options: any) {
+  constructor(list: LabelSymbolizer[]) {
     this.list = list;
   }
 
@@ -429,7 +506,7 @@ export class FlexSymbolizer implements LabelSymbolizer {
       }
     }
 
-    let draw = (ctx: any) => {
+    let draw = (ctx: CanvasRenderingContext2D) => {
       for (let sub of draws) {
         ctx.save();
         ctx.translate(sub.translate.x, sub.translate.y);
@@ -475,7 +552,7 @@ export class GroupSymbolizer implements LabelSymbolizer {
       bbox = mergeBbox(bbox, label.bboxes[0]);
       draws.push(label.draw);
     }
-    let draw = (ctx: any) => {
+    let draw = (ctx: CanvasRenderingContext2D) => {
       draws.forEach((d) => d(ctx));
     };
 
@@ -505,7 +582,7 @@ export class CenteredSymbolizer implements LabelSymbolizer {
       maxY: a.y + height / 2,
     };
 
-    let draw = (ctx: any) => {
+    let draw = (ctx: CanvasRenderingContext2D) => {
       ctx.translate(-width / 2, height / 2 - bbox.maxY);
       first_label.draw(ctx, { justify: Justify.Center });
     };
@@ -539,6 +616,18 @@ export class Padding implements LabelSymbolizer {
   }
 }
 
+export interface TextSymbolizerOptions
+  extends FontAttrOptions,
+    TextAttrOptions {
+  fill?: Attr<string>;
+  stroke?: Attr<string>;
+  width?: Attr<number>;
+  lineHeight?: Attr<number>;
+  letterSpacing?: Attr<number>;
+  maxLineChars?: Attr<number>;
+  justify?: Justify;
+}
+
 export class TextSymbolizer implements LabelSymbolizer {
   font: FontAttr;
   text: TextAttr;
@@ -548,9 +637,9 @@ export class TextSymbolizer implements LabelSymbolizer {
   lineHeight: NumberAttr; // in ems
   letterSpacing: NumberAttr; // in px
   maxLineCodeUnits: NumberAttr;
-  justify: Justify;
+  justify?: Justify;
 
-  constructor(options: any) {
+  constructor(options: TextSymbolizerOptions) {
     this.font = new FontAttr(options);
     this.text = new TextAttr(options);
 
@@ -603,7 +692,7 @@ export class TextSymbolizer implements LabelSymbolizer {
 
     // inside draw, the origin is the anchor
     // and the anchor is the typographic baseline of the first line
-    let draw = (ctx: any, extra?: DrawExtra) => {
+    let draw = (ctx: CanvasRenderingContext2D, extra?: DrawExtra) => {
       ctx.globalAlpha = 1;
       ctx.font = font;
       ctx.fillStyle = this.fill.get(layout.zoom, feature);
@@ -655,7 +744,7 @@ export class TextSymbolizer implements LabelSymbolizer {
 export class CenteredTextSymbolizer implements LabelSymbolizer {
   centered: LabelSymbolizer;
 
-  constructor(options: any) {
+  constructor(options: TextSymbolizerOptions) {
     this.centered = new CenteredSymbolizer(new TextSymbolizer(options));
   }
 
@@ -665,121 +754,168 @@ export class CenteredTextSymbolizer implements LabelSymbolizer {
 }
 
 export interface OffsetSymbolizerValues {
-  offsetX?: number
-  offsetY?: number
-  placements?: TextPlacements[]
-  justify?: Justify
+  offsetX?: number;
+  offsetY?: number;
+  placements?: TextPlacements[];
+  justify?: Justify;
 }
 
-export type DataDrivenOffsetSymbolizer = (zoom:number,feature:Feature) => OffsetSymbolizerValues
+export type DataDrivenOffsetSymbolizer = (
+  zoom: number,
+  feature: Feature
+) => OffsetSymbolizerValues;
+
+export interface OffsetSymbolizerOptions {
+  offsetX?: Attr<number>;
+  offsetY?: Attr<number>;
+  justify?: Justify;
+  placements?: TextPlacements[];
+  ddValues?: DataDrivenOffsetSymbolizer;
+}
 
 export class OffsetSymbolizer implements LabelSymbolizer {
-    symbolizer: LabelSymbolizer
-    offsetX: NumberAttr
-    offsetY: NumberAttr
-    justify: Justify
-    placements: TextPlacements[]
-    ddValues: DataDrivenOffsetSymbolizer
+  symbolizer: LabelSymbolizer;
+  offsetX: NumberAttr;
+  offsetY: NumberAttr;
+  justify?: Justify;
+  placements: TextPlacements[];
+  ddValues: DataDrivenOffsetSymbolizer;
 
-    constructor(symbolizer:LabelSymbolizer, options:any) {
-        this.symbolizer = symbolizer
-        this.offsetX = new NumberAttr(options.offsetX,0)
-        this.offsetY = new NumberAttr(options.offsetY,0)
-        this.justify = options.justify || undefined
-        this.placements = options.placements
-          || [TextPlacements.NE, TextPlacements.SW, TextPlacements.NW, TextPlacements.SE,
-            TextPlacements.N, TextPlacements.E, TextPlacements.S, TextPlacements.W]
-        this.ddValues = (options.ddValues as DataDrivenOffsetSymbolizer) || (() => { return {} })
+  constructor(symbolizer: LabelSymbolizer, options: OffsetSymbolizerOptions) {
+    this.symbolizer = symbolizer;
+    this.offsetX = new NumberAttr(options.offsetX, 0);
+    this.offsetY = new NumberAttr(options.offsetY, 0);
+    this.justify = options.justify ?? undefined;
+    this.placements = options.placements ?? [
+      TextPlacements.NE,
+      TextPlacements.SW,
+      TextPlacements.NW,
+      TextPlacements.SE,
+      TextPlacements.N,
+      TextPlacements.E,
+      TextPlacements.S,
+      TextPlacements.W,
+    ];
+    this.ddValues =
+      options.ddValues ??
+      (() => {
+        return {};
+      });
+  }
+
+  public place(layout: Layout, geom: Point[][], feature: Feature) {
+    if (feature.geomType !== GeomType.Point) return undefined;
+    let anchor = geom[0][0];
+    let placed = this.symbolizer.place(layout, [[new Point(0, 0)]], feature);
+    if (!placed || placed.length == 0) return undefined;
+    let first_label = placed[0];
+    let fb = first_label.bboxes[0];
+
+    // Overwrite options values via the data driven function if exists
+    let offsetXValue = this.offsetX;
+    let offsetYValue = this.offsetY;
+    let justifyValue = this.justify;
+    let placements = this.placements;
+    const {
+      offsetX: ddOffsetX,
+      offsetY: ddOffsetY,
+      justify: ddJustify,
+      placements: ddPlacements,
+    } = this.ddValues(layout.zoom, feature) || {};
+    if (ddOffsetX) offsetXValue = new NumberAttr(ddOffsetX, 0);
+    if (ddOffsetY) offsetYValue = new NumberAttr(ddOffsetY, 0);
+    if (ddJustify) justifyValue = ddJustify;
+    if (ddPlacements) placements = ddPlacements;
+
+    const offsetX = offsetXValue.get(layout.zoom, feature);
+    const offsetY = offsetYValue.get(layout.zoom, feature);
+
+    let getBbox = (a: Point, o: Point) => {
+      return {
+        minX: a.x + o.x + fb.minX,
+        minY: a.y + o.y + fb.minY,
+        maxX: a.x + o.x + fb.maxX,
+        maxY: a.y + o.y + fb.maxY,
+      };
+    };
+
+    var origin = new Point(offsetX, offsetY);
+    var justify: Justify;
+    let draw = (ctx: CanvasRenderingContext2D) => {
+      ctx.translate(origin.x, origin.y);
+      first_label.draw(ctx, { justify: justify });
+    };
+
+    const placeLabelInPoint = (a: Point, o: Point) => {
+      const bbox = getBbox(a, o);
+      if (!layout.index.bboxCollides(bbox, layout.order))
+        return [{ anchor: anchor, bboxes: [bbox], draw: draw }];
+    };
+
+    for (let placement of placements) {
+      const xAxisOffset = this.computeXAxisOffset(offsetX, fb, placement);
+      const yAxisOffset = this.computeYAxisOffset(offsetY, fb, placement);
+      justify = this.computeJustify(justifyValue, placement);
+      origin = new Point(xAxisOffset, yAxisOffset);
+      return placeLabelInPoint(anchor, origin);
     }
 
-    public place(layout:Layout,geom:Point[][],feature:Feature) {
-        if (feature.geomType !== GeomType.Point) return undefined
-        let anchor = geom[0][0]
-        let placed = this.symbolizer.place(layout,[[new Point(0,0)]],feature)
-        if (!placed || placed.length == 0) return undefined
-        let first_label = placed[0]
-        let fb = first_label.bboxes[0]
+    return undefined;
+  }
 
-        // Overwrite options values via the data driven function if exists
-        let offsetXValue = this.offsetX
-        let offsetYValue = this.offsetY
-        let justifyValue = this.justify
-        let placements = this.placements 
-        const { 
-          offsetX: ddOffsetX,
-          offsetY: ddOffsetY,
-          justify: ddJustify,
-          placements: ddPlacements } = this.ddValues(layout.zoom,feature) || {}
-        if (ddOffsetX) offsetXValue = new NumberAttr(ddOffsetX, 0)
-        if (ddOffsetY) offsetYValue = new NumberAttr(ddOffsetY, 0)
-        if (ddJustify) justifyValue = ddJustify
-        if (ddPlacements) placements = ddPlacements
+  computeXAxisOffset(offsetX: number, fb: Bbox, placement: TextPlacements) {
+    const labelWidth = fb.maxX;
+    const labelHalfWidth = labelWidth / 2;
+    if ([TextPlacements.N, TextPlacements.S].includes(placement))
+      return offsetX - labelHalfWidth;
+    if (
+      [TextPlacements.NW, TextPlacements.W, TextPlacements.SW].includes(
+        placement
+      )
+    )
+      return offsetX - labelWidth;
+    return offsetX;
+  }
 
-        const offsetX = offsetXValue.get(layout.zoom,feature)
-        const offsetY = offsetYValue.get(layout.zoom,feature)
+  computeYAxisOffset(offsetY: number, fb: Bbox, placement: TextPlacements) {
+    const labelHalfHeight = Math.abs(fb.minY);
+    const labelBottom = fb.maxY;
+    const labelCenterHeight = (fb.minY + fb.maxY) / 2;
+    if ([TextPlacements.E, TextPlacements.W].includes(placement))
+      return offsetY - labelCenterHeight;
+    if (
+      [TextPlacements.NW, TextPlacements.NE, TextPlacements.N].includes(
+        placement
+      )
+    )
+      return offsetY - labelBottom;
+    if (
+      [TextPlacements.SW, TextPlacements.SE, TextPlacements.S].includes(
+        placement
+      )
+    )
+      return offsetY + labelHalfHeight;
+    return offsetY;
+  }
 
-        let getBbox = (a:Point,o:Point) => {
-            return {
-                minX:a.x+o.x+fb.minX, 
-                minY:a.y+o.y+fb.minY,
-                maxX:a.x+o.x+fb.maxX,
-                maxY:a.y+o.y+fb.maxY
-            }
-        }
-
-        var origin = new Point(offsetX,offsetY)
-        var justify:Justify
-        let draw = (ctx:any) => {
-          ctx.translate(origin.x,origin.y)
-          first_label.draw(ctx,{justify:justify})
-        }
-
-        const placeLabelInPoint = (a:Point, o:Point) => {
-          const bbox = getBbox(a,o)
-          if (!layout.index.bboxCollides(bbox,layout.order)) return [{anchor:anchor,bboxes:[bbox],draw:draw}]
-        }
-
-        for(let placement of placements) {
-          const xAxisOffset = this.computeXAxisOffset(offsetX, fb, placement)
-          const yAxisOffset = this.computeYAxisOffset(offsetY, fb, placement)
-          justify = this.computeJustify(justifyValue, placement)
-          origin = new Point(xAxisOffset, yAxisOffset)
-          return placeLabelInPoint(anchor, origin)
-        }
-
-        return undefined
-    }
-
-    computeXAxisOffset (offsetX: number, fb: Bbox, placement: TextPlacements) {
-      const labelWidth = fb.maxX
-      const labelHalfWidth = labelWidth / 2
-      if ([TextPlacements.N, TextPlacements.S].includes(placement)) return offsetX - labelHalfWidth
-      if ([TextPlacements.NW, TextPlacements.W, TextPlacements.SW].includes(placement)) return offsetX - labelWidth
-      return offsetX
-    }
-
-    computeYAxisOffset(offsetY: number, fb: Bbox, placement: TextPlacements) {
-      const labelHalfHeight = Math.abs(fb.minY)
-      const labelBottom = fb.maxY
-      const labelCenterHeight = (fb.minY + fb.maxY)/2
-      if ([TextPlacements.E, TextPlacements.W].includes(placement)) return offsetY - labelCenterHeight
-      if ([TextPlacements.NW, TextPlacements.NE, TextPlacements.N].includes(placement)) return offsetY - labelBottom
-      if ([TextPlacements.SW, TextPlacements.SE, TextPlacements.S].includes(placement)) return offsetY + labelHalfHeight
-      return offsetY
-    }
-
-    computeJustify(fixedJustify: Justify, placement: TextPlacements) {
-      if (fixedJustify) return fixedJustify
-      if ([TextPlacements.N, TextPlacements.S].includes(placement)) return Justify.Center
-      if ([TextPlacements.NE, TextPlacements.E, TextPlacements.SE].includes(placement)) return Justify.Left
-      return Justify.Right
-    }
+  computeJustify(fixedJustify: Justify | undefined, placement: TextPlacements) {
+    if (fixedJustify) return fixedJustify;
+    if ([TextPlacements.N, TextPlacements.S].includes(placement))
+      return Justify.Center;
+    if (
+      [TextPlacements.NE, TextPlacements.E, TextPlacements.SE].includes(
+        placement
+      )
+    )
+      return Justify.Left;
+    return Justify.Right;
+  }
 }
 
 export class OffsetTextSymbolizer implements LabelSymbolizer {
   symbolizer: LabelSymbolizer;
 
-  constructor(options: any) {
+  constructor(options: OffsetSymbolizerOptions & TextSymbolizerOptions) {
     this.symbolizer = new OffsetSymbolizer(
       new TextSymbolizer(options),
       options
@@ -800,7 +936,16 @@ export class LineLabelSymbolizer implements LabelSymbolizer {
   width: NumberAttr;
   offset: NumberAttr;
 
-  constructor(options: any) {
+  constructor(
+    options: {
+      radius?: Attr<number>;
+      fill?: Attr<string>;
+      stroke?: Attr<string>;
+      width?: Attr<number>;
+      offset?: Attr<number>;
+    } & TextAttrOptions &
+      FontAttrOptions
+  ) {
     this.font = new FontAttr(options);
     this.text = new TextAttr(options);
 
@@ -840,7 +985,7 @@ export class LineLabelSymbolizer implements LabelSymbolizer {
       };
     });
 
-    let draw = (ctx: any) => {
+    let draw = (ctx: CanvasRenderingContext2D) => {
       ctx.globalAlpha = 1;
       // ctx.beginPath()
       // ctx.moveTo(0,0)
@@ -871,7 +1016,7 @@ export class LineLabelSymbolizer implements LabelSymbolizer {
 export class PolygonLabelSymbolizer implements LabelSymbolizer {
   symbolizer: LabelSymbolizer;
 
-  constructor(options: any) {
+  constructor(options: TextSymbolizerOptions) {
     this.symbolizer = new TextSymbolizer(options);
   }
 
@@ -896,7 +1041,7 @@ export class PolygonLabelSymbolizer implements LabelSymbolizer {
       maxY: a.y + (fb.maxY - fb.minY) / 2,
     };
 
-    let draw = (ctx: any) => {
+    let draw = (ctx: CanvasRenderingContext2D) => {
       ctx.translate(
         first_label.anchor.x - (fb.maxX - fb.minX) / 2,
         first_label.anchor.y
