@@ -92,18 +92,18 @@ export function numberFn(obj: any): (z: number, f: Feature) => number {
 export function numberOrFn(
   obj: any,
   defaultValue = 0
-): number | ((z: number, f: Feature) => number) {
+): number | ((z: number, f?: Feature) => number) {
   if (!obj) return defaultValue;
   if (typeof obj == "number") {
     return obj;
   }
-  return numberFn(obj);
+  return (z: number, f?: Feature) => (f ? numberFn(obj)(z, f) : defaultValue);
 }
 
 export function widthFn(width_obj: any, gap_obj: any) {
   let w = numberOrFn(width_obj, 1);
   let g = numberOrFn(gap_obj);
-  return (z: number, f: Feature) => {
+  return (z: number, f?: Feature) => {
     let tmp = typeof w == "number" ? w : w(z, f);
     if (g) {
       return tmp + (typeof g == "number" ? g : g(z, f));
@@ -143,15 +143,15 @@ export function getFont(obj: any, fontsubmap: any) {
     var base = 1.4;
     if (text_size.base) base = text_size.base;
     let t = numberFn(text_size);
-    return (z: number, feature: Feature) => {
-      return `${style}${weight}${t(z, feature)}px ${fontfaces
+    return (z: number, f?: Feature) => {
+      return `${style}${weight}${f ? t(z, f) : "12"}px ${fontfaces
         .map((f) => f.face)
         .join(", ")}`;
     };
   } else if (text_size[0] == "step") {
     let t = numberFn(text_size);
-    return (z: number, feature: Feature) => {
-      return `${style}${weight}${t(z, feature)}px ${fontfaces
+    return (z: number, f?: Feature) => {
+      return `${style}${weight}${f ? t(z, f) : "12"}px ${fontfaces
         .map((f) => f.face)
         .join(", ")}`;
     };
