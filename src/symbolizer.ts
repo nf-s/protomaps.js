@@ -3,7 +3,7 @@ import Point from "@mapbox/point-geometry";
 // @ts-ignore
 import polylabel from "polylabel";
 import {
-  Attr,
+  AttrOption,
   FontAttr,
   FontAttrOptions,
   NumberAttr,
@@ -15,18 +15,6 @@ import { Label, Layout } from "./labeler";
 import { lineCells, simpleLabel } from "./line";
 import { linebreak } from "./text";
 import { Bbox, Feature, GeomType } from "./tilecache";
-
-// Adapted from https://stackoverflow.com/a/55479659
-type NonFunctionPropertyNames<T> = {
-  [K in keyof T]: T[K] extends Function ? never : K;
-}[keyof T];
-type NonFunctionProperties<T> = Pick<T, NonFunctionPropertyNames<T>>;
-
-export type ObjectProperties<
-  T,
-  Required extends keyof T | undefined = undefined
-> = Partial<NonFunctionProperties<T>> &
-  (Required extends keyof T ? Pick<T, Required> : {});
 
 let batch_size = Infinity;
 if (
@@ -100,10 +88,10 @@ export class PolygonSymbolizer implements PaintSymbolizer {
 
   constructor(options: {
     pattern?: CanvasImageSource;
-    fill?: Attr<string>;
-    opacity?: Attr<number>;
-    stroke?: Attr<string>;
-    width?: Attr<number>;
+    fill?: AttrOption<string>;
+    opacity?: AttrOption<number>;
+    stroke?: AttrOption<string>;
+    width?: AttrOption<number>;
     per_feature?: boolean;
   }) {
     this.pattern = options.pattern;
@@ -237,16 +225,16 @@ export class LineSymbolizer implements PaintSymbolizer {
   lineJoin: StringAttr<CanvasLineJoin>;
 
   constructor(options: {
-    color?: Attr<string>;
-    width?: Attr<number>;
-    opacity?: Attr<number>;
+    color?: AttrOption<string>;
+    width?: AttrOption<number>;
+    opacity?: AttrOption<number>;
     dash?: number[];
-    dashColor?: Attr<string>;
-    dashWidth?: Attr<number>;
+    dashColor?: AttrOption<string>;
+    dashWidth?: AttrOption<number>;
     skip?: boolean;
     per_feature?: boolean;
-    lineCap?: Attr<CanvasLineCap>;
-    lineJoin?: Attr<CanvasLineJoin>;
+    lineCap?: AttrOption<CanvasLineCap>;
+    lineJoin?: AttrOption<CanvasLineJoin>;
   }) {
     this.color = new StringAttr(options.color, "black");
     this.width = new NumberAttr(options.width);
@@ -326,16 +314,25 @@ export class LineSymbolizer implements PaintSymbolizer {
   }
 }
 
-export class IconSymbolizer implements LabelSymbolizer {
-  sprites: Map<
-    string,
-    { canvas: CanvasImageSource; x: number; y: number; w: number; h: number }
-  >;
-  name: string;
+interface Sprite {
+  canvas: CanvasImageSource;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
-  constructor(options: ObjectProperties<IconSymbolizer, "name">) {
-    this.sprites = options.sprites ?? new Map();
+export interface IconSymbolizerOptions {
+  name: string;
+  sprites?: Map<string, Sprite>;
+}
+export class IconSymbolizer implements LabelSymbolizer {
+  name: string;
+  sprites: Map<string, Sprite>;
+
+  constructor(options: IconSymbolizerOptions) {
     this.name = options.name;
+    this.sprites = options.sprites ?? new Map();
   }
 
   public place(layout: Layout, geom: Point[][], feature: Feature) {
@@ -365,11 +362,11 @@ export class CircleSymbolizer implements LabelSymbolizer, PaintSymbolizer {
   opacity: NumberAttr;
 
   constructor(options: {
-    radius?: Attr<number>;
-    fill?: Attr<string>;
-    stroke?: Attr<string>;
-    width?: Attr<number>;
-    opacity?: Attr<number>;
+    radius?: AttrOption<number>;
+    fill?: AttrOption<string>;
+    stroke?: AttrOption<string>;
+    width?: AttrOption<number>;
+    opacity?: AttrOption<number>;
   }) {
     this.radius = new NumberAttr(options.radius, 3);
     this.fill = new StringAttr(options.fill, "black");
@@ -428,9 +425,9 @@ export class ShieldSymbolizer implements LabelSymbolizer {
 
   constructor(
     options: {
-      fill?: Attr<string>;
-      background?: Attr<string>;
-      padding?: Attr<number>;
+      fill?: AttrOption<string>;
+      background?: AttrOption<string>;
+      padding?: AttrOption<number>;
     } & FontAttrOptions &
       TextAttrOptions
   ) {
@@ -619,12 +616,12 @@ export class Padding implements LabelSymbolizer {
 export interface TextSymbolizerOptions
   extends FontAttrOptions,
     TextAttrOptions {
-  fill?: Attr<string>;
-  stroke?: Attr<string>;
-  width?: Attr<number>;
-  lineHeight?: Attr<number>;
-  letterSpacing?: Attr<number>;
-  maxLineChars?: Attr<number>;
+  fill?: AttrOption<string>;
+  stroke?: AttrOption<string>;
+  width?: AttrOption<number>;
+  lineHeight?: AttrOption<number>;
+  letterSpacing?: AttrOption<number>;
+  maxLineChars?: AttrOption<number>;
   justify?: Justify;
 }
 
@@ -766,8 +763,8 @@ export type DataDrivenOffsetSymbolizer = (
 ) => OffsetSymbolizerValues;
 
 export interface OffsetSymbolizerOptions {
-  offsetX?: Attr<number>;
-  offsetY?: Attr<number>;
+  offsetX?: AttrOption<number>;
+  offsetY?: AttrOption<number>;
   justify?: Justify;
   placements?: TextPlacements[];
   ddValues?: DataDrivenOffsetSymbolizer;
@@ -938,11 +935,11 @@ export class LineLabelSymbolizer implements LabelSymbolizer {
 
   constructor(
     options: {
-      radius?: Attr<number>;
-      fill?: Attr<string>;
-      stroke?: Attr<string>;
-      width?: Attr<number>;
-      offset?: Attr<number>;
+      radius?: AttrOption<number>;
+      fill?: AttrOption<string>;
+      stroke?: AttrOption<string>;
+      width?: AttrOption<number>;
+      offset?: AttrOption<number>;
     } & TextAttrOptions &
       FontAttrOptions
   ) {
