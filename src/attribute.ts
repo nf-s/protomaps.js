@@ -1,13 +1,12 @@
-import { ObjectProperties } from ".";
 import { Feature } from "./tilecache";
 
-export type Attr<T> = T | ((z: number, f?: Feature) => T);
+export type AttrOption<T> = T | ((z: number, f?: Feature) => T);
 
 export class StringAttr<T extends string = string> {
-  str: Attr<T>;
-  per_feature?: boolean;
+  str: AttrOption<T>;
+  per_feature: boolean;
 
-  constructor(c: Attr<T> | undefined, defaultValue: T) {
+  constructor(c: AttrOption<T> | undefined, defaultValue: T) {
     this.str = c ?? defaultValue;
     this.per_feature = typeof this.str == "function" && this.str.length == 2;
   }
@@ -22,10 +21,10 @@ export class StringAttr<T extends string = string> {
 }
 
 export class NumberAttr {
-  value: Attr<number>;
+  value: AttrOption<number>;
   per_feature: boolean;
 
-  constructor(c: Attr<number> | undefined, defaultValue: number = 1) {
+  constructor(c: AttrOption<number> | undefined, defaultValue: number = 1) {
     this.value = c ?? defaultValue;
     this.per_feature =
       typeof this.value == "function" && this.value.length == 2;
@@ -40,10 +39,13 @@ export class NumberAttr {
   }
 }
 
-export interface TextAttrOptions extends ObjectProperties<TextAttr> {}
+export interface TextAttrOptions {
+  label_props?: AttrOption<string[]>;
+  textTransform?: string;
+}
 
 export class TextAttr {
-  label_props: Attr<string[]>;
+  label_props: AttrOption<string[]>;
   textTransform?: string;
 
   constructor(options: TextAttrOptions) {
@@ -73,19 +75,19 @@ export class TextAttr {
 }
 
 export interface FontAttrOptions {
-  font?: Attr<string>;
-  fontFamily?: Attr<string>;
-  fontSize?: Attr<number>;
-  fontWeight?: Attr<number>;
-  fontStyle?: Attr<string>;
+  font?: AttrOption<string>;
+  fontFamily?: AttrOption<string>;
+  fontSize?: AttrOption<number>;
+  fontWeight?: AttrOption<number>;
+  fontStyle?: AttrOption<string>;
 }
 
 export class FontAttr {
-  family?: Attr<string>;
-  size?: Attr<number>;
-  weight?: Attr<number>;
-  style?: Attr<string>;
-  font?: Attr<string>;
+  family?: AttrOption<string>;
+  size?: AttrOption<number>;
+  weight?: AttrOption<number>;
+  style?: AttrOption<string>;
+  font?: AttrOption<string>;
 
   constructor(options: FontAttrOptions) {
     if (options.font) {

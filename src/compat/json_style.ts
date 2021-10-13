@@ -97,6 +97,7 @@ export function numberOrFn(
   if (typeof obj == "number") {
     return obj;
   }
+  // If feature f is defined, use numberFn, otherwise use defaultValue
   return (z: number, f?: Feature) => (f ? numberFn(obj)(z, f) : defaultValue);
 }
 
