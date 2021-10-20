@@ -6,7 +6,7 @@ export class StringAttr<T extends string = string> {
   str: AttrOption<T>;
   per_feature: boolean;
 
-  constructor(c: AttrOption<T>, defaultValue?: T) {
+  constructor(c: AttrOption<T> | undefined, defaultValue: T) {
     this.str = c ?? defaultValue;
     this.per_feature = typeof this.str == "function" && this.str.length == 2;
   }

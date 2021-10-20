@@ -43,7 +43,7 @@ test("stringattr", async () => {
   const c2 = new StringAttr(undefined, "red");
   assert.equal(c2.get(1), "red");
 
-  const c3 = new StringAttr("blue");
+  const c3 = new StringAttr("blue", "green");
   assert.equal(c3.get(1), "blue");
 
   const c4 = new StringAttr((z, f) => {
