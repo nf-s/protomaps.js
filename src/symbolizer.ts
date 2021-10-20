@@ -10,7 +10,7 @@ import {
   NumberAttr,
   StringAttr,
   TextAttr,
-  TextAttrOptions
+  TextAttrOptions,
 } from "./attribute";
 import { Label, Layout } from "./labeler";
 import { lineCells, simpleLabel } from "./line";
@@ -512,7 +512,7 @@ export class ShieldSymbolizer implements LabelSymbolizer {
       );
       ctx.fillStyle = this.fill.get(layout.zoom, f);
       ctx.font = font;
-      ctx.fillText(property, -width / 2, 0);
+      ctx.fillText(property!, -width / 2, 0);
     };
     return [{ anchor: a, bboxes: [bbox], draw: draw }];
   }
@@ -986,7 +986,7 @@ export class LineLabelSymbolizer implements LabelSymbolizer {
       width?: AttrOption<number>;
       offset?: AttrOption<number>;
       maxLabelChars?: AttrOption<number>;
-  repeatDistance?: AttrOption<number>;
+      repeatDistance?: AttrOption<number>;
     } & TextAttrOptions &
       FontAttrOptions
   ) {
@@ -1068,10 +1068,10 @@ export class LineLabelSymbolizer implements LabelSymbolizer {
         if (lineWidth) {
           ctx.lineWidth = lineWidth;
           ctx.strokeStyle = this.stroke.get(layout.zoom, feature);
-          ctx.strokeText(name, 0, 0);
+          ctx.strokeText(name!, 0, 0);
         }
         ctx.fillStyle = this.fill.get(layout.zoom, feature);
-        ctx.fillText(name, 0, 0);
+        ctx.fillText(name!, 0, 0);
       };
       labels.push({ anchor: candidate.start, bboxes: bboxes, draw: draw });
     }

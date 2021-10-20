@@ -53,23 +53,27 @@ export class TextAttr {
     this.textTransform = options?.textTransform;
   }
 
-  public get(z: number, f: Feature): string {
-    var retval;
+  public get(z: number, f: Feature): string | undefined {
+    let retval: string | undefined;
 
-    var label_props: string[];
+    let label_props: string[];
     if (typeof this.label_props == "function") {
       label_props = this.label_props(z, f);
     } else {
       label_props = this.label_props;
     }
     for (let property of label_props) {
-      if (f.props.hasOwnProperty(property)) {
-        retval = f.props[property];
+      if (
+        f.props.hasOwnProperty(property) &&
+        typeof f.props[property] === "string"
+      ) {
+        retval = f.props[property] as string;
         break;
       }
     }
     if (retval && this.textTransform === "uppercase")
-      retval = retval.toUpperCase();
+      return retval.toUpperCase();
+
     return retval;
   }
 }
