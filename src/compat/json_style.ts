@@ -54,7 +54,7 @@ export function filterFn(arr: any[]): Filter {
   }
 }
 
-export function numberFn(obj: any): (z: number, f: Feature) => number {
+export function numberFn(obj: any): (z: number, f?: Feature) => number {
   if (obj.base && obj.stops) {
     return (z: number) => {
       return exp(obj.base, obj.stops)(z - 1);
@@ -75,8 +75,8 @@ export function numberFn(obj: any): (z: number, f: Feature) => number {
   } else if (obj[0] == "step" && obj[1][0] == "get") {
     let slice = obj.slice(2);
     let prop = obj[1][1];
-    return (z: number, f: Feature) => {
-      let val = f.props[prop];
+    return (z: number, f?: Feature) => {
+      let val = f?.props[prop];
       if (val < slice[1]) return slice[0];
       for (i = 1; i < slice.length; i += 2) {
         if (val <= slice[i]) return slice[i + 1];
@@ -137,22 +137,23 @@ export function getFont(obj: any, fontsubmap: any) {
   if (fontfaces.length && fontfaces[0].style) style = fontfaces[0].style + " ";
 
   if (typeof text_size == "number") {
-    return `${style}${weight}${text_size}px ${fontfaces
-      .map((f) => f.face)
-      .join(", ")}`;
+    return (z: number) =>
+      `${style}${weight}${text_size}px ${fontfaces
+        .map((f) => f.face)
+        .join(", ")}`;
   } else if (text_size.stops) {
     var base = 1.4;
     if (text_size.base) base = text_size.base;
     let t = numberFn(text_size);
     return (z: number, f?: Feature) => {
-      return `${style}${weight}${f ? t(z, f) : "12"}px ${fontfaces
+      return `${style}${weight}${t(z, f)}px ${fontfaces
         .map((f) => f.face)
         .join(", ")}`;
     };
   } else if (text_size[0] == "step") {
     let t = numberFn(text_size);
     return (z: number, f?: Feature) => {
-      return `${style}${weight}${f ? t(z, f) : "12"}px ${fontfaces
+      return `${style}${weight}${t(z, f)}px ${fontfaces
         .map((f) => f.face)
         .join(", ")}`;
     };

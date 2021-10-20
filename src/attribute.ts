@@ -6,7 +6,7 @@ export class StringAttr<T extends string = string> {
   str: AttrOption<T>;
   per_feature: boolean;
 
-  constructor(c: AttrOption<T> | undefined, defaultValue: T) {
+  constructor(c: AttrOption<T>, defaultValue?: T) {
     this.str = c ?? defaultValue;
     this.per_feature = typeof this.str == "function" && this.str.length == 2;
   }
@@ -48,9 +48,9 @@ export class TextAttr {
   label_props: AttrOption<string[]>;
   textTransform?: string;
 
-  constructor(options: TextAttrOptions) {
-    this.label_props = options.label_props ?? ["name"];
-    this.textTransform = options.textTransform;
+  constructor(options?: TextAttrOptions) {
+    this.label_props = options?.label_props ?? ["name"];
+    this.textTransform = options?.textTransform;
   }
 
   public get(z: number, f: Feature): string {
@@ -89,18 +89,18 @@ export class FontAttr {
   style?: AttrOption<string>;
   font?: AttrOption<string>;
 
-  constructor(options: FontAttrOptions) {
-    if (options.font) {
+  constructor(options?: FontAttrOptions) {
+    if (options?.font) {
       this.font = options.font;
     } else {
-      this.family = options.fontFamily ?? "sans-serif";
-      this.size = options.fontSize ?? 12;
-      this.weight = options.fontWeight;
-      this.style = options.fontStyle;
+      this.family = options?.fontFamily ?? "sans-serif";
+      this.size = options?.fontSize ?? 12;
+      this.weight = options?.fontWeight;
+      this.style = options?.fontStyle;
     }
   }
 
-  public get(z: number, f: Feature) {
+  public get(z: number, f?: Feature) {
     if (this.font) {
       if (typeof this.font === "function") {
         return this.font(z, f);
