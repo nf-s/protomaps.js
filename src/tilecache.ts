@@ -117,7 +117,7 @@ function parseTile(
 }
 
 export class PmtilesSource implements TileSource {
-  p: any; // Set types to any for terria
+  p: PMTiles;
   controllers: any[];
   shouldCancelZooms: boolean;
 
