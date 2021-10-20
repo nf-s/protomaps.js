@@ -132,7 +132,7 @@ const leafletLayer = (options: any): any => {
       try {
         prepared_tile = await this.view.getDisplayTile(coords);
       } catch (e) {
-        if (e.name == "AbortError") return;
+        if ((e as any).name == "AbortError") return;
         else throw e;
       }
 

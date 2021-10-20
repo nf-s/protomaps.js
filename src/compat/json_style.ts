@@ -1,13 +1,17 @@
-import {
-  PolygonSymbolizer,
-  LineSymbolizer,
-  LineLabelSymbolizer,
-  CenteredTextSymbolizer,
-  exp,
-  CircleSymbolizer,
-} from "./../symbolizer";
 import { Filter } from "../painter";
-import { Feature } from "../tilecache";
+import { Feature, JsonValue } from "../tilecache";
+import {
+  CenteredTextSymbolizer,
+  CircleSymbolizer,
+  exp,
+  LineLabelSymbolizer,
+  LineSymbolizer,
+  PolygonSymbolizer,
+} from "./../symbolizer";
+
+function number(val: JsonValue, defaultValue: number) {
+  return typeof val === "number" ? val : defaultValue;
+}
 
 export function filterFn(arr: any[]): Filter {
   // hack around "$type"
@@ -21,13 +25,13 @@ export function filterFn(arr: any[]): Filter {
     let sub = filterFn(arr[1]);
     return (z, f) => !sub(z, f);
   } else if (arr[0] === "<") {
-    return (z, f) => f.props[arr[1]] < arr[2];
+    return (z, f) => number(f.props[arr[1]], Infinity) < arr[2];
   } else if (arr[0] === "<=") {
-    return (z, f) => f.props[arr[1]] <= arr[2];
+    return (z, f) => number(f.props[arr[1]], Infinity) <= arr[2];
   } else if (arr[0] === ">") {
-    return (z, f) => f.props[arr[1]] > arr[2];
+    return (z, f) => number(f.props[arr[1]], -Infinity) > arr[2];
   } else if (arr[0] === ">=") {
-    return (z, f) => f.props[arr[1]] >= arr[2];
+    return (z, f) => number(f.props[arr[1]], -Infinity) >= arr[2];
   } else if (arr[0] === "in") {
     return (z, f) => arr.slice(2, arr.length).includes(f.props[arr[1]]);
   } else if (arr[0] === "!in") {
@@ -77,9 +81,11 @@ export function numberFn(obj: any): (z: number, f?: Feature) => number {
     let prop = obj[1][1];
     return (z: number, f?: Feature) => {
       let val = f?.props[prop];
-      if (val < slice[1]) return slice[0];
-      for (i = 1; i < slice.length; i += 2) {
-        if (val <= slice[i]) return slice[i + 1];
+      if (typeof val === "number") {
+        if (val < slice[1]) return slice[0];
+        for (i = 1; i < slice.length; i += 2) {
+          if (val <= slice[i]) return slice[i + 1];
+        }
       }
       return slice[slice.length - 1];
     };
