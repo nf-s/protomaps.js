@@ -1,5 +1,6 @@
 // @ts-ignore
 import Point from "@mapbox/point-geometry";
+import UnitBezier from "@mapbox/unitbezier";
 // @ts-ignore
 import polylabel from "polylabel";
 import {
@@ -9,21 +10,15 @@ import {
   NumberAttr,
   StringAttr,
   TextAttr,
-  TextAttrOptions,
+  TextAttrOptions
 } from "./attribute";
 import { Label, Layout } from "./labeler";
 import { lineCells, simpleLabel } from "./line";
 import { linebreak } from "./text";
 import { Bbox, Feature, GeomType } from "./tilecache";
 
-let batch_size = Infinity;
-if (
-  typeof navigator !== "undefined" &&
-  navigator.userAgent.toLowerCase().indexOf("webkit") >= 0
-) {
-  // https://bugs.webkit.org/show_bug.cgi?id=230751
-  batch_size = 200;
-}
+// https://bugs.webkit.org/show_bug.cgi?id=230751
+const MAX_VERTICES_PER_DRAW_CALL = 5400;
 
 export interface PaintSymbolizer {
   before?(ctx: CanvasRenderingContext2D, z: number): void;
@@ -142,25 +137,29 @@ export class PolygonSymbolizer implements PaintSymbolizer {
       }
     }
 
-    var i = 0;
-    while (i < geom.length) {
-      var j = 0;
-      ctx.beginPath();
-      while (i < geom.length && j < batch_size) {
-        var poly = geom[i];
-        for (var p = 0; p < poly.length - 1; p++) {
-          let pt = poly[p];
-          if (p == 0) ctx.moveTo(pt.x, pt.y);
-          else ctx.lineTo(pt.x, pt.y);
-        }
-        i++;
-        j++;
-      }
+    let drawPath = () => {
       ctx.fill();
       if (do_stroke || this.do_stroke) {
         ctx.stroke();
       }
+    };
+
+    var vertices_in_path = 0;
+    ctx.beginPath();
+    for (var poly of geom) {
+      if (vertices_in_path + poly.length > MAX_VERTICES_PER_DRAW_CALL) {
+        drawPath();
+        vertices_in_path = 0;
+        ctx.beginPath();
+      }
+      for (var p = 0; p < poly.length - 1; p++) {
+        let pt = poly[p];
+        if (p == 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      }
+      vertices_in_path += poly.length;
     }
+    if (vertices_in_path > 0) drawPath();
   }
 }
 
@@ -174,30 +173,54 @@ export function arr(base: number, a: number[]): (z: number) => number {
   };
 }
 
+function getStopIndex(input: number, stops: number[][]): number {
+  let idx = 0;
+  while (stops[idx + 1][0] < input) idx++;
+  return idx;
+}
+
+function interpolate(factor: number, start: number, end: number): number {
+  return factor * (end - start) + start;
+}
+
+function computeInterpolationFactor(
+  z: number,
+  idx: number,
+  base: number,
+  stops: number[][]
+): number {
+  const difference = stops[idx + 1][0] - stops[idx][0];
+  const progress = z - stops[idx][0];
+  if (difference === 0) return 0;
+  else if (base === 1) return progress / difference;
+  else return (Math.pow(base, progress) - 1) / (Math.pow(base, difference) - 1);
+}
+
 export function exp(base: number, stops: number[][]): (z: number) => number {
   return (z) => {
     if (stops.length < 1) return 0;
     if (z <= stops[0][0]) return stops[0][1];
     if (z >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
-    let idx = 0;
-    while (stops[idx + 1][0] < z) idx++;
-    let difference = stops[idx + 1][0] - stops[idx][0];
-    let progress = z - stops[idx][0];
-    var factor;
-    if (difference === 0) factor = 0;
-    else if (base === 1) factor = progress / difference;
-    else
-      factor =
-        (Math.pow(base, progress) - 1) / (Math.pow(base, difference) - 1);
-    return factor * (stops[idx + 1][1] - stops[idx][1]) + stops[idx][1];
+    const idx = getStopIndex(z, stops);
+    const factor = computeInterpolationFactor(z, idx, base, stops);
+    return interpolate(factor, stops[idx][1], stops[idx + 1][1]);
   };
 }
 
-export function step(stops: number[][]): (z: number) => number {
+export type Stop = [number, number] | [number, string] | [number, boolean];
+export function step(
+  output0: number | string | boolean,
+  stops: Stop[]
+): (z: number) => number | string | boolean {
+  // Step computes discrete results by evaluating a piecewise-constant
+  // function defined by stops.
+  // Returns the output value of the stop with a stop input value just less than
+  // the input one. If the input value is less than the input of the first stop,
+  // output0 is returned
   return (z) => {
     if (stops.length < 1) return 0;
-    let retval = 0;
-    for (var i = 0; i < stops.length; i++) {
+    let retval = output0;
+    for (let i = 0; i < stops.length; i++) {
       if (z >= stops[i][0]) retval = stops[i][1];
     }
     return retval;
@@ -206,6 +229,22 @@ export function step(stops: number[][]): (z: number) => number {
 
 export function linear(stops: number[][]): (z: number) => number {
   return exp(1, stops);
+}
+
+export function cubicBezier(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  stops: number[][]
+): (z: number) => number {
+  return (z) => {
+    if (stops.length < 1) return 0;
+    const bezier = new UnitBezier(x1, y1, x2, y2);
+    const idx = getStopIndex(z, stops);
+    const factor = bezier.solve(computeInterpolationFactor(z, idx, 1, stops));
+    return interpolate(factor, stops[idx][1], stops[idx + 1][1]);
+  };
 }
 
 function isFunction(obj: any) {
@@ -274,21 +313,7 @@ export class LineSymbolizer implements PaintSymbolizer {
   ) {
     if (this.skip) return;
 
-    var i = 0;
-    while (i < geom.length) {
-      var j = 0;
-      ctx.beginPath();
-      while (i < geom.length && j < batch_size) {
-        var ls = geom[i];
-        for (var p = 0; p < ls.length; p++) {
-          let pt = ls[p];
-          if (p == 0) ctx.moveTo(pt.x, pt.y);
-          else ctx.lineTo(pt.x, pt.y);
-        }
-        i++;
-        j++;
-      }
-
+    let strokePath = () => {
       if (this.per_feature) {
         ctx.globalAlpha = this.opacity.get(z, f);
         ctx.lineCap = this.lineCap.get(z, f);
@@ -310,7 +335,24 @@ export class LineSymbolizer implements PaintSymbolizer {
         }
         ctx.stroke();
       }
+    };
+
+    var vertices_in_path = 0;
+    ctx.beginPath();
+    for (var ls of geom) {
+      if (vertices_in_path + ls.length > MAX_VERTICES_PER_DRAW_CALL) {
+        strokePath();
+        vertices_in_path = 0;
+        ctx.beginPath();
+      }
+      for (var p = 0; p < ls.length; p++) {
+        let pt = ls[p];
+        if (p == 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      }
+      vertices_in_path += ls.length;
     }
+    if (vertices_in_path > 0) strokePath();
   }
 }
 
@@ -933,6 +975,9 @@ export class LineLabelSymbolizer implements LabelSymbolizer {
   width: NumberAttr;
   offset: NumberAttr;
 
+  maxLabelCodeUnits: NumberAttr;
+  repeatDistance: NumberAttr;
+
   constructor(
     options: {
       radius?: AttrOption<number>;
@@ -940,6 +985,8 @@ export class LineLabelSymbolizer implements LabelSymbolizer {
       stroke?: AttrOption<string>;
       width?: AttrOption<number>;
       offset?: AttrOption<number>;
+      maxLabelChars?: AttrOption<number>;
+  repeatDistance?: AttrOption<number>;
     } & TextAttrOptions &
       FontAttrOptions
   ) {
@@ -950,63 +997,86 @@ export class LineLabelSymbolizer implements LabelSymbolizer {
     this.stroke = new StringAttr(options.stroke, "black");
     this.width = new NumberAttr(options.width, 0);
     this.offset = new NumberAttr(options.offset, 0);
+    this.maxLabelCodeUnits = new NumberAttr(options.maxLabelChars, 40);
+    this.repeatDistance = new NumberAttr(options.repeatDistance, 250);
   }
 
   public place(layout: Layout, geom: Point[][], feature: Feature) {
     let name = this.text.get(layout.zoom, feature);
     if (!name) return undefined;
-    if (name.length > 20) return undefined;
+    if (name.length > this.maxLabelCodeUnits.get(layout.zoom, feature))
+      return undefined;
 
+    let MIN_LABELABLE_DIM = 20;
     let fbbox = feature.bbox;
-    let area = (fbbox.maxY - fbbox.minY) * (fbbox.maxX - fbbox.minX); // TODO needs to be based on zoom level
-    if (area < 400) return undefined;
+    if (
+      fbbox.maxY - fbbox.minY < MIN_LABELABLE_DIM &&
+      fbbox.maxX - fbbox.minX < MIN_LABELABLE_DIM
+    )
+      return undefined;
 
     let font = this.font.get(layout.zoom, feature);
     layout.scratch.font = font;
     let metrics = layout.scratch.measureText(name);
     let width = metrics.width;
+    let height =
+      metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
 
-    let result = simpleLabel(geom, width);
-    if (!result) return undefined;
-    let dx = result.end.x - result.start.x;
-    let dy = result.end.y - result.start.y;
+    var repeatDistance = this.repeatDistance.get(layout.zoom, feature);
+    if (layout.overzoom > 4) repeatDistance *= 1 << (layout.overzoom - 4);
 
-    let Q = 8;
-    let cells = lineCells(result.start, result.end, width, 8);
-    let bboxes = cells.map((c) => {
-      return {
-        minX: c.x - Q,
-        minY: c.y - Q,
-        maxX: c.x + Q,
-        maxY: c.y + Q,
+    let cell_size = height * 2;
+
+    let label_candidates = simpleLabel(geom, width, repeatDistance, cell_size);
+    if (label_candidates.length == 0) return undefined;
+
+    let labels = [];
+    for (let candidate of label_candidates) {
+      let dx = candidate.end.x - candidate.start.x;
+      let dy = candidate.end.y - candidate.start.y;
+
+      let cells = lineCells(
+        candidate.start,
+        candidate.end,
+        width,
+        cell_size / 2
+      );
+      let bboxes = cells.map((c) => {
+        return {
+          minX: c.x - cell_size / 2,
+          minY: c.y - cell_size / 2,
+          maxX: c.x + cell_size / 2,
+          maxY: c.y + cell_size / 2,
+        };
+      });
+
+      let draw = (ctx: CanvasRenderingContext2D) => {
+        ctx.globalAlpha = 1;
+        // ctx.beginPath();
+        // ctx.moveTo(0, 0);
+        // ctx.lineTo(dx, dy);
+        // ctx.strokeStyle = "red";
+        // ctx.stroke();
+        ctx.rotate(Math.atan2(dy, dx));
+        if (dx < 0) {
+          ctx.scale(-1, -1);
+          ctx.translate(-width, 0);
+        }
+        ctx.translate(0, -this.offset.get(layout.zoom, feature));
+        ctx.font = font;
+        let lineWidth = this.width.get(layout.zoom, feature);
+        if (lineWidth) {
+          ctx.lineWidth = lineWidth;
+          ctx.strokeStyle = this.stroke.get(layout.zoom, feature);
+          ctx.strokeText(name, 0, 0);
+        }
+        ctx.fillStyle = this.fill.get(layout.zoom, feature);
+        ctx.fillText(name, 0, 0);
       };
-    });
+      labels.push({ anchor: candidate.start, bboxes: bboxes, draw: draw });
+    }
 
-    let draw = (ctx: CanvasRenderingContext2D) => {
-      ctx.globalAlpha = 1;
-      // ctx.beginPath()
-      // ctx.moveTo(0,0)
-      // ctx.lineTo(dx,dy)
-      // ctx.strokeStyle = "red"
-      // ctx.stroke()
-      ctx.rotate(Math.atan2(dy, dx));
-      if (dx < 0) {
-        ctx.scale(-1, -1);
-        ctx.translate(-width, 0);
-      }
-      ctx.translate(0, -this.offset.get(layout.zoom, feature));
-      ctx.font = font;
-      let lineWidth = this.width.get(layout.zoom, feature);
-      if (lineWidth) {
-        ctx.lineWidth = lineWidth;
-        ctx.strokeStyle = this.stroke.get(layout.zoom, feature);
-        ctx.strokeText(name, 0, 0);
-      }
-      ctx.fillStyle = this.fill.get(layout.zoom, feature);
-      ctx.fillText(name, 0, 0);
-    };
-
-    return [{ anchor: result.start, bboxes: bboxes, draw: draw }];
+    return labels;
   }
 }
 
